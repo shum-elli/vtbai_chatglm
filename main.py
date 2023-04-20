@@ -70,13 +70,19 @@ def write_excel_xls_append(value):
     if main_config['env'] == 'dev':
         print("xls格式表格【追加】写入数据成功！")
 
+#################################################### ChatGLM_Support Modify Start ##########################################################
+if queue_config['is_link']:
+    # 配置chatglm
+    base_context = [openai_config['nya1']]
+else:
+    # 配置openai
+    openai.api_key = openai_config['key']
+    openai.api_base = openai_config['proxy_domain']
+    base_context = [{"role": "system", "content": openai_config['nya1']}]
+    context_message = []
+    temp_message = []
+#################################################### ChatGLM_Support Modify End ##########################################################
 
-# 配置openai
-openai.api_key = openai_config['key']
-openai.api_base = openai_config['proxy_domain']
-base_context = [{"role": "system", "content": openai_config['nya1']}]
-context_message = []
-temp_message = []
 async def chatgpt(is_run):
     print("运行gpt循环任务")
     while is_run:
@@ -144,12 +150,20 @@ def send2gpt(msg):
         send_gpt_msg = msg['msg']
         send_vits_msg = send_gpt_msg
 
-    # 生成上下文
-    temp_message.append({"role": "user", "content": send_gpt_msg})
-    # 上下文最大值
-    if len(temp_message) > 3:
-        del (temp_message[0])
-    message = base_context + temp_message
+#################################################### ChatGLM_Support Modify Start ##########################################################
+    if queue_config['is_link']:
+        # chatGLM版本上下文
+        # 此处将message参数作为历史记录变量
+        message = base_context
+    else:
+        # chatGPT版本生成上下文
+        # 生成上下文
+        temp_message.append({"role": "user", "content": send_gpt_msg})
+        # 上下文最大值
+        if len(temp_message) > 3:
+            del (temp_message[0])
+        message = base_context + temp_message
+#################################################### ChatGLM_Support Modify End ##########################################################
 
     # 子进程4
     # 开启 openai 进程
@@ -178,10 +192,33 @@ def rec2tts(msg, send_gpt_msg, message, send_vits_msg,tts_que,tts_config):
             'price': msg['price']
         })
 
-    # 发送并收
-    response = openai.ChatCompletion.create(
-        model=openai_config['model'], messages=message)
-    responseText = str(response['choices'][0]['message']['content'])
+#################################################### ChatGLM_Support Modify Start ##########################################################
+    if queue_config['is_link']:
+        # 发送并收 (CHATGLM 版本！！！)
+        url = queue_config['api_listen']  # 使用原作者的api接口实现
+        headers = {"Content-Type": "application/json"}
+        data = {"prompt": str(send_gpt_msg), "history": message}  # 此处复用message变量作为history字段
+        response = requests.post(url, headers=headers, json=data)
+
+        # 显示内容
+        print(response.status_code)  # should print 200 if successful
+        print(response.json())
+
+        # 获取回复字 (CHATGLM 版本)
+        responseText = str(response.json()['response'])
+
+        # 处理 History字段 (CHATGLM 版本)
+        message += response.json()['history']
+        # 超出三条的部分需要被删除
+        if len(message) > 3:
+            del (message[0])
+    else:
+        # 发送并收 (CHATGPT 版本！！！)
+        response = openai.ChatCompletion.create(
+            model=openai_config['model'], messages=message)
+        # 获取回复字 (CHATGPT 版本)
+        responseText = str(response['choices'][0]['message']['content'])
+#################################################### ChatGLM_Support Modify End ##########################################################
 
     # 敏感词词音过滤
     if filter_text(responseText) == False:
@@ -365,7 +402,7 @@ if __name__ == '__main__':
     _thread.start_new_thread(asyncio.run,(run_single_client(),))
     print('All thread start.')
 
-       # 子进程1、2
+    # 子进程1、2
     # playsound 播放进程
     p = multiprocessing.Process(target=tts.play, args=(is_run,tts_config,wav_que,curr_txt))
     p.start()
