@@ -71,10 +71,7 @@ def write_excel_xls_append(value):
         print("xls格式表格【追加】写入数据成功！")
 
 #################################################### ChatGLM_Support Modify Start ##########################################################
-if queue_config['is_link']:
-    # 配置chatglm
-    base_context = [openai_config['nya1']]
-else:
+if not queue_config['is_link']:
     # 配置openai
     openai.api_key = openai_config['key']
     openai.api_base = openai_config['proxy_domain']
@@ -152,9 +149,8 @@ def send2gpt(msg):
 
 #################################################### ChatGLM_Support Modify Start ##########################################################
     if queue_config['is_link']:
-        # chatGLM版本上下文
-        # 此处将message参数作为历史记录变量
-        message = base_context
+        # chatGLM
+        message = []
     else:
         # chatGPT版本生成上下文
         # 生成上下文
@@ -177,7 +173,63 @@ def send2gpt(msg):
 
 def rec2tts(msg, send_gpt_msg, message, send_vits_msg,tts_que,tts_config):
     print("进入openai chatgpt进程，向gpt发送::" + send_gpt_msg)
+#################################################### ChatGLM_Support Modify Start ##########################################################
+    if queue_config['is_link']:
+        # 读取旧日志
+        with open('output/' + str(datetime.date.today()) + '.txt', 'r', encoding='utf-8') as r:
 
+            date_len = len(str(datetime.datetime.now()))
+            head_len = date_len + len("::发送::")  # 记录信息长度
+            max_history_length = 2  # 最大历史长度 (往返对话记一次)
+            temp_history = []
+            history = [[]]
+
+            # 读取数据
+            for line in r:
+                # 若数据行低于检测长度
+                if len(line) > date_len + 3:
+                    # 检测是否为新对话内容
+                    if line[date_len + 2] == '发' and line[date_len + 3] == '送' or line[date_len + 2] == '接' and line[date_len + 3] == '收':
+                        data_line = line.strip("\n")[head_len:]  # 去掉数据头
+                        temp_history.append(data_line)  # 添加数据
+                    else:
+                        temp_history[len(temp_history) - 1] += line  # 添加不同行的数据
+                else:
+                    temp_history[len(temp_history) - 1] += line  # 添加不同行的数据
+
+            # 仅保留三条数据
+            history_len = len(temp_history)
+            if history_len > max_history_length * 2:
+                for i in range(0, history_len - max_history_length * 2):
+                    del (temp_history[0])
+
+            # 修复没有历史记录的情况
+            if history_len == 0:
+                history = []
+            else:
+                # 历史记录分组 (按对话)
+                chat_cnt = 0
+                sta = 0
+                for line in temp_history:
+                    print(line)
+                    history[chat_cnt].append(line)
+                    sta += 1
+                    if sta == 2:
+                        history.append([])
+                        chat_cnt += 1
+                        sta = 0
+
+                # 删除最后一组对话
+                del (history[len(history) - 1])
+
+            r.flush()
+
+        # 若上一条没有接收到任何信息，则主动往历史记录中添加一条错误信息
+        if history_len % 2 != 0:
+            with open('output/' + str(datetime.date.today()) + '.txt', 'a', encoding='utf-8') as a:
+                a.write(str(datetime.datetime.now()) + "::接收::" + "网络或端口异常，请检查！" + '\n')
+                a.flush()
+#################################################### ChatGLM_Support Modify End ##########################################################
     # 对话日志写入 excel
     with open('output/' + str(datetime.date.today()) + '.txt', 'a', encoding='utf-8') as a:
         a.write(str(datetime.datetime.now()) + "::发送::" + send_gpt_msg + '\n')
@@ -195,10 +247,16 @@ def rec2tts(msg, send_gpt_msg, message, send_vits_msg,tts_que,tts_config):
 #################################################### ChatGLM_Support Modify Start ##########################################################
     if queue_config['is_link']:
         # 发送并收 (CHATGLM 版本！！！)
+
+
         url = queue_config['api_listen']  # 使用原作者的api接口实现
         headers = {"Content-Type": "application/json"}
-        data = {"prompt": str(send_gpt_msg), "history": message}  # 此处复用message变量作为history字段
+        data = {"prompt": str(send_gpt_msg), "history": history}
         response = requests.post(url, headers=headers, json=data)
+
+        print("加载历史中...")
+        print(data)
+        print("加载历史完成...")
 
         # 显示内容
         print(response.status_code)  # should print 200 if successful
@@ -207,11 +265,6 @@ def rec2tts(msg, send_gpt_msg, message, send_vits_msg,tts_que,tts_config):
         # 获取回复字 (CHATGLM 版本)
         responseText = str(response.json()['response'])
 
-        # 处理 History字段 (CHATGLM 版本)
-        message += response.json()['history']
-        # 超出三条的部分需要被删除
-        if len(message) > 3:
-            del (message[0])
     else:
         # 发送并收 (CHATGPT 版本！！！)
         response = openai.ChatCompletion.create(
