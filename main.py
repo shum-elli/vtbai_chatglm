@@ -20,7 +20,7 @@ from flask_cors import CORS
 import sys
 from xlutils.copy import copy
 from pypinyin import lazy_pinyin
-from flask import Flask, request,jsonify
+from flask import Flask, request, jsonify
 import tts
 
 # 配置文件、当前文本、excel（对话列表数据库）、敏感词文本
@@ -39,7 +39,6 @@ bili_config = dict(con.items('bili'))
 openai_config = dict(con.items('openai'))
 tts_config = dict(con.items('tts'))
 
-
 # excel数据库
 if os.path.exists(xlsl_path) == False:
     workbook = xlwt.Workbook()
@@ -47,6 +46,8 @@ if os.path.exists(xlsl_path) == False:
     workbook.save(xlsl_path)
     print("xls格式表格初始化成功！")
     print('当前进程id::' + str(os.getpid()))
+
+
 def write_excel_xls_append(value):
     workbook = xlrd.open_workbook(xlsl_path)  # 打开工作簿
     sheets = workbook.sheet_names()  # 获取工作簿中的所有表格
@@ -70,6 +71,7 @@ def write_excel_xls_append(value):
     if main_config['env'] == 'dev':
         print("xls格式表格【追加】写入数据成功！")
 
+
 #################################################### ChatGLM_Support Modify Start ##########################################################
 if not queue_config['is_link']:
     # 配置openai
@@ -78,6 +80,8 @@ if not queue_config['is_link']:
     base_context = [{"role": "system", "content": openai_config['nya1']}]
     context_message = []
     temp_message = []
+
+
 #################################################### ChatGLM_Support Modify End ##########################################################
 
 async def chatgpt(is_run):
@@ -117,6 +121,7 @@ async def chatgpt(is_run):
         else:
             await asyncio.sleep(1)
 
+
 def send2gpt(msg):
     if main_config['env'] == 'dev':
         print('gpt当前进程id::' + str(os.getpid()))
@@ -129,7 +134,7 @@ def send2gpt(msg):
         send_vits_msg = msg['msg']
     elif msg['type'] == 'sc':
         send_gpt_msg = msg['name'] + msg['action'] + \
-            str(msg['price']) + '块钱sc说' + msg['msg']
+                       str(msg['price']) + '块钱sc说' + msg['msg']
         send_vits_msg = send_gpt_msg
     elif msg['type'] == 'guard':
         guardType = '舰长'
@@ -138,7 +143,7 @@ def send2gpt(msg):
         elif msg['price'] > 2000:
             guardType = '总督'
         send_gpt_msg = msg['name'] + msg['action'] + \
-            guardType + '了,花了' + str(msg['price']) + '元'
+                       guardType + '了,花了' + str(msg['price']) + '元'
         send_vits_msg = msg['name'] + msg['action'] + guardType + '了'
     elif msg['type'] == 'gift':
         send_gpt_msg = msg['name'] + msg['action'] + msg['msg']
@@ -147,7 +152,7 @@ def send2gpt(msg):
         send_gpt_msg = msg['msg']
         send_vits_msg = send_gpt_msg
 
-#################################################### ChatGLM_Support Modify Start ##########################################################
+    #################################################### ChatGLM_Support Modify Start ##########################################################
     if queue_config['is_link']:
         # chatGLM
         message = []
@@ -159,21 +164,22 @@ def send2gpt(msg):
         if len(temp_message) > 3:
             del (temp_message[0])
         message = base_context + temp_message
-#################################################### ChatGLM_Support Modify End ##########################################################
+    #################################################### ChatGLM_Support Modify End ##########################################################
 
     # 子进程4
     # 开启 openai 进程
     p = multiprocessing.Process(target=rec2tts, args=(
-        msg, send_gpt_msg, message, send_vits_msg,tts_que,tts_config))
+        msg, send_gpt_msg, message, send_vits_msg, tts_que, tts_config))
     p.start()
     # join 会阻塞当前 gpt 循环线程，但不会阻塞弹幕线程
     print("openai请求子进程开启完成")
     if tts_que.full():
         p.join()
 
-def rec2tts(msg, send_gpt_msg, message, send_vits_msg,tts_que,tts_config):
+
+def rec2tts(msg, send_gpt_msg, message, send_vits_msg, tts_que, tts_config):
     print("进入openai chatgpt进程，向gpt发送::" + send_gpt_msg)
-#################################################### ChatGLM_Support Modify Start ##########################################################
+    #################################################### ChatGLM_Support Modify Start ##########################################################
     if queue_config['is_link']:
         # 读取旧日志
         with open('output/' + str(datetime.date.today()) + '.txt', 'r', encoding='utf-8') as r:
@@ -229,7 +235,7 @@ def rec2tts(msg, send_gpt_msg, message, send_vits_msg,tts_que,tts_config):
             with open('output/' + str(datetime.date.today()) + '.txt', 'a', encoding='utf-8') as a:
                 a.write(str(datetime.datetime.now()) + "::接收::" + "网络或端口异常，请检查！" + '\n')
                 a.flush()
-#################################################### ChatGLM_Support Modify End ##########################################################
+    #################################################### ChatGLM_Support Modify End ##########################################################
     # 对话日志写入 excel
     with open('output/' + str(datetime.date.today()) + '.txt', 'a', encoding='utf-8') as a:
         a.write(str(datetime.datetime.now()) + "::发送::" + send_gpt_msg + '\n')
@@ -244,14 +250,15 @@ def rec2tts(msg, send_gpt_msg, message, send_vits_msg,tts_que,tts_config):
             'price': msg['price']
         })
 
-#################################################### ChatGLM_Support Modify Start ##########################################################
+    #################################################### ChatGLM_Support Modify Start ##########################################################
     if queue_config['is_link']:
         # 发送并收 (CHATGLM 版本！！！)
 
-
         url = queue_config['api_listen']  # 使用原作者的api接口实现
         headers = {"Content-Type": "application/json"}
-        data = {"prompt": str(send_gpt_msg), "history": history}
+        # data = {"prompt": str(send_gpt_msg), "history": history}  # CHATGLM官方
+        #data = {"question": str(send_gpt_msg), "history": history}  # langchain_chatglm fastapi支持 普通模式
+        data = {"knowledge_base_id": "FAQ_FAISS_20230530_094953","question": str(send_gpt_msg), "history": history}  # langchain_chatglm fastapi支持  知识库模式
         response = requests.post(url, headers=headers, json=data)
 
         print("加载历史中...")
@@ -271,10 +278,10 @@ def rec2tts(msg, send_gpt_msg, message, send_vits_msg,tts_que,tts_config):
             model=openai_config['model'], messages=message)
         # 获取回复字 (CHATGPT 版本)
         responseText = str(response['choices'][0]['message']['content'])
-#################################################### ChatGLM_Support Modify End ##########################################################
+    #################################################### ChatGLM_Support Modify End ##########################################################
 
     # 敏感词词音过滤
-    if filter_text(responseText) == False:
+    if not filter_text(responseText):
         print("检测到敏感词内容::" + responseText)
         return
     print("从gpt接收::" + responseText)
@@ -303,6 +310,8 @@ pinyin_sensitive_word = []
 for i in range(len(hanzi_sensitive_word)):
     hanzi_sensitive_word[i] = hanzi_sensitive_word[i].replace('\n', '')
     pinyin_sensitive_word.append(str.join('', lazy_pinyin(hanzi_sensitive_word[i])))
+
+
 # 敏感词音检测
 def filter_text(text):
     # 为上舰时直接过
@@ -334,6 +343,8 @@ giftQue = PriorityQueue(maxsize=5)
 # 普通弹幕队列
 danmuQue = PriorityQueue(maxsize=10)
 topIDs = bili_config['topid'].split(',')
+
+
 async def run_single_client():
     # 如果SSL验证失败就把ssl设为False，B站真的有过忘续证书的情况
     client = blivedm.BLiveClient(roomID, ssl=True)
@@ -345,7 +356,8 @@ async def run_single_client():
         await client.join()
     finally:
         await client.stop_and_close()
-        
+
+
 class MyHandler(blivedm.BaseHandler):
     async def _on_heartbeat(self, client: blivedm.BLiveClient, message: blivedm.HeartbeatMessage):
         print(f'[{client.room_id}] 当前人气值：{message.popularity}')
@@ -374,7 +386,7 @@ class MyHandler(blivedm.BaseHandler):
                     danmuQue.get(True, 1)
                 except BaseException:
                     print("on_danmuku时，get异常")
-            
+
             queData = {'name': message.uname, 'type': 'danmu', 'num': 1, 'action': '说',
                        'msg': message.msg.replace('[', '').replace(']', ''), 'price': 0}
             if main_config['env'] == 'dev':
@@ -393,7 +405,7 @@ class MyHandler(blivedm.BaseHandler):
                 print("错误" + str(danmuQue.empty()))
                 print("后弹幕队列容量：" + str(danmuQue.qsize()))
                 print("ErrorEnd-------------------------")
-            
+
     async def _on_gift(self, client: blivedm.BLiveClient, message: blivedm.GiftMessage):
         if message.coin_type == 'gold':
             print(f'礼物：：[{client.room_id}] {message.uname} 赠送{message.gift_name}x{message.num}'
@@ -428,6 +440,7 @@ log.setLevel(logging.CRITICAL)
 app = Flask(__name__)
 CORS(app)
 
+
 @app.route('/', methods=['GET'])
 def putQueue():
     message = request.args.get('text', '')
@@ -435,42 +448,41 @@ def putQueue():
                'action': '', 'msg': message, 'price': 0}
     topQue.put(queData)
     return '1'
+
+
 @app.route('/subtitle', methods=['GET'])
 def subtitle():
     # 读取共享内存变量的值
     return curr_txt.value
 
 
-
 if __name__ == '__main__':
     is_run = True
     # multiprocessing.set_start_method('spawn')
     manager = multiprocessing.Manager()
-    curr_txt =  manager.Value(str, "") 
- 
+    curr_txt = manager.Value(str, "")
+
     # 主进程
     # chatgpt
-    _thread.start_new_thread(asyncio.run,(chatgpt(is_run),))
+    _thread.start_new_thread(asyncio.run, (chatgpt(is_run),))
     # bilibili
-    _thread.start_new_thread(asyncio.run,(run_single_client(),))
+    _thread.start_new_thread(asyncio.run, (run_single_client(),))
     print('All thread start.')
 
     # 子进程1、2
     # playsound 播放进程
-    p = multiprocessing.Process(target=tts.play, args=(is_run,tts_config,wav_que,curr_txt))
+    p = multiprocessing.Process(target=tts.play, args=(is_run, tts_config, wav_que, curr_txt))
     p.start()
 
     # 子进程3
     # tts 推理进程
-    p = multiprocessing.Process(target=tts.inference, args=(is_run,tts_config,tts_que,wav_que))
+    p = multiprocessing.Process(target=tts.inference, args=(is_run, tts_config, tts_que, wav_que))
     p.start()
 
     print('All subprocesses start.')
 
-
     # api
     app.run("0.0.0.0", 3939)
-
 
     time.sleep(2)
     input('input to exit::\n')

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
+
+#define PY_SSIZE_T_CLEAN
 import multiprocessing
-import onnxruntime as ort
-import torchvision.models as models
 from scipy.io import wavfile
 import time
 import wave
@@ -11,6 +11,8 @@ import sys
 import numpy as np
 import asyncio
 import torch
+import edge_tts
+import subprocess
 import uuid
 import configparser
 sys.path.append('MoeGoe')
@@ -36,39 +38,58 @@ def is_english(string):
 
 
 # 生成/推理语音
-def generated_speech(hps, ort_sess, tts_config, text, fileName):
-    text = f"[ZH]{text}[ZH]"
-    if is_japanese(text):
-        text = f"[JA]{text}[JA]"
+async def generated_speech(hps, tts_config, text, fileName) -> None:
+#def generated_speech(hps, ort_sess, tts_config, text, fileName):
+    #edge-tts重写版本
+
+    try:
+        communicate = edge_tts.Communicate(text, "zh-CN-YunxiNeural")
+    except Exception as e:
+        print("out")
+        #error occurred, log 'e', etc.
+
+    with open('output/wav/'+fileName+'.mp3', "wb") as file:
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                file.write(chunk["data"])
+
+
+    subprocess.call(['ffmpeg', '-i', 'output/wav/' + fileName + '.mp3', 'output/wav/' + fileName + '.wav'])
+
+
+
+    #text = f"[ZH]{text}[ZH]"
+    # if is_japanese(text):
+    #     text = f"[JA]{text}[JA]"
 
     # 将文本字符串转换为id
-    seq = text_to_sequence(text, symbols=hps.symbols,
-                           cleaner_names=hps.data.text_cleaners)
-    if hps.data.add_blank:
-        seq = commons.intersperse(seq, 0)
-    with torch.no_grad():
-        x = np.array([seq], dtype=np.int64)
-        x_len = np.array([x.shape[1]], dtype=np.int64)
-        sid = tts_config['speaker_id']
-        sid = np.array([sid], dtype=np.int64)
-        scales = np.array([tts_config['noise_scale'], tts_config['noise_scale_w'],
-                          tts_config['length_scale']], dtype=np.float32)
-        scales.resize(1, 3)
-        ort_inputs = {
-            'input': x,
-            'input_lengths': x_len,
-            'scales': scales,
-            'sid': sid
-        }
-        t1 = time.time()
-        audio = np.squeeze(ort_sess.run(None, ort_inputs))
-        audio *= 32767.0 / max(0.01, np.max(np.abs(audio))) * 0.6
-        audio = np.clip(audio, -32767.0, 32767.0)
-        t2 = time.time()
-        spending_time = "推理时间："+str(t2-t1)+"s"
-        print(spending_time+" 推理内容:"+text)
-        wavfile.write('output/wav/'+fileName+'.wav', hps.data.sampling_rate,
-                      audio.astype(np.int16))
+    # seq = text_to_sequence(text, symbols=hps.symbols,
+    #                        cleaner_names=hps.data.text_cleaners)
+    # if hps.data.add_blank:
+    #     seq = commons.intersperse(seq, 0)
+    # with torch.no_grad():
+    #     x = np.array([seq], dtype=np.int64)
+    #     x_len = np.array([x.shape[1]], dtype=np.int64)
+    #     sid = tts_config['speaker_id']
+    #     sid = np.array([sid], dtype=np.int64)
+    #     scales = np.array([tts_config['noise_scale'], tts_config['noise_scale_w'],
+    #                       tts_config['length_scale']], dtype=np.float32)
+    #     scales.resize(1, 3)
+    #     ort_inputs = {
+    #         'input': x,
+    #         'input_lengths': x_len,
+    #         'scales': scales,
+    #         'sid': sid
+    #     }
+    #     t1 = time.time()
+    #     audio = np.squeeze(ort_sess.run(None, ort_inputs))
+    #     audio *= 32767.0 / max(0.01, np.max(np.abs(audio))) * 0.6
+    #     audio = np.clip(audio, -32767.0, 32767.0)
+    #     t2 = time.time()
+    #     spending_time = "推理时间："+str(t2-t1)+"s"
+    #     print(spending_time+" 推理内容:"+text)
+    #     wavfile.write('output/wav/'+fileName+'.wav', hps.data.sampling_rate,
+    #                   audio.astype(np.int16))
 
 # 播放语音和更改文字
 
@@ -85,6 +106,9 @@ def play(is_run, tts_config, wav_que, curr_txt):
         p = multiprocessing.Process(
             target=change_txt, args=(tts_config, txt, curr_txt))
         p.start()
+
+        #subprocess.call(['ffmpeg', '-i', 'output/wav/'+name+'.mp3', 'output/wav/'+name+'.wav'])
+
         play_audio('output/wav/'+name+'.wav')
         if is_auto_del:
             os.remove('output/wav/'+name+'.wav')
@@ -106,7 +130,8 @@ def play_audio(file_path):
     stream = p.open(format=p.get_format_from_width(wf.getsampwidth()),
                     channels=wf.getnchannels(),
                     rate=wf.getframerate(),
-                    output=True)
+                    output=True,
+                    output_device_index=9)
 
     data = wf.readframes(CHUNK)
 
@@ -131,15 +156,20 @@ def inference(is_run, tts_config,  ttsQue, wav_que):
     tts_config = dict(con.items('tts'))
 
     hps = ttsUtils.get_hparams_from_file(tts_config['model_config'])
-    ort_sess = ort.InferenceSession(tts_config['model_onnx'])
-
+    #ort_sess = ort.InferenceSession(tts_config['model_onnx'])
+    loop = asyncio.get_event_loop()
     while is_run:
         # 阻塞
         text = ttsQue.get()
         name = str(uuid.uuid1())
         print("生成语音：："+name+"::"+text)
-        generated_speech(hps, ort_sess, tts_config, text,name)
+
+        loop.run_until_complete(generated_speech(hps, tts_config, text,name))
+
+
+        #generated_speech(hps, ort_sess, tts_config, text,name)
         wav_que.put(name+"::"+text)
+    loop.close()
 
 if __name__ == '__main__':
     config_ini = 'config/config.ini'
@@ -150,7 +180,7 @@ if __name__ == '__main__':
     tts_config = dict(con.items('tts'))
 
     hps = ttsUtils.get_hparams_from_file(tts_config['model_config'])
-    ort_sess = ort.InferenceSession(tts_config['model_onnx'])
+    #ort_sess = ort.InferenceSession(tts_config['model_onnx'])
 
     str1 = "最喜欢的季节是春天。我觉得春天是一个充满生机和活力的季节。随着百花的盛开，春天带来了新的生命和希望。在春天，气温逐渐升高，天气也变得温暖和宜人。大自然开始苏醒，鸟儿唧唧喳喳地叫着，树木渐渐发芽，花儿绽放出五彩斑斓的色彩。春天也是一个让人感到愉快的季节。人们开始换上轻便的衣服，走出户外，感受大自然的美妙。我喜欢在春天里去公园散步，享受春风拂面的感觉。在公园里，可以看到满眼的绿意和各种各样的鲜花，让人心情舒畅。此外，春天也是一个让人充满期待和希望的季节。在新的一年里，一切都是全新的开始。人们开始规划新的计划和目标，并努力实现它们。总之，对我来说，春天是一个非常特别的季节。它带给我无尽的欢乐和动力，让我感到充满希望和激情。我相信，在这个美好的季节里，我们可以收获更多的爱与快乐。"
-    generated_speech(hps, ort_sess, tts_config, str1, 'temp1')
+    generated_speech(hps, tts_config, str1, 'temp1')
